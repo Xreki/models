@@ -156,8 +156,8 @@ class AttentionModel(fluid.dygraph.Layer):
         return x
 
     def _real_state(self, state, new_state, step_mask):
-        new_state = fluid.layers.elementwise_mul(new_state, step_mask, axis=0) - \
-                    fluid.layers.elementwise_mul(state, (step_mask - 1), axis=0)
+        #new_state = fluid.layers.elementwise_mul(new_state, step_mask, axis=0) - \
+        #            fluid.layers.elementwise_mul(state, (step_mask - 1), axis=0)
         return new_state
         
     def _gather(self, x, indices, batch_pos):

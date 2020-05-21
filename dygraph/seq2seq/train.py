@@ -102,11 +102,26 @@ def main():
         src_lang = args.src_lang
         tar_lang = args.tar_lang
         print("begin to load data")
+        """
         raw_data = reader.raw_data(src_lang, tar_lang, vocab_prefix,
                                 train_data_prefix, eval_data_prefix,
                                 test_data_prefix, args.max_len)
+        """
+
+        train_data_iter = fluid.io.DataLoader.from_generator(capacity=32, use_double_buffer=True, iterable=True, return_list=True, use_multiprocess=True)
+        valid_data_iter = fluid.io.DataLoader.from_generator(capacity=32, use_double_buffer=True, iterable=True, return_list=True, use_multiprocess=True)
+        test_data_iter = fluid.io.DataLoader.from_generator(capacity=32, use_double_buffer=True, iterable=True, return_list=True, use_multiprocess=True)
+
+        train_reader = reader.get_reader(batch_size, src_lang, tar_lang, vocab_prefix, train_data_prefix, max_len=args.max_len, reader_mode='train', enable_ce=args.enable_ce, cache_num=20)
+        train_data_iter.set_batch_generator(train_reader, place)
+        valid_reader = reader.get_reader(batch_size, src_lang, tar_lang, vocab_prefix, eval_data_prefix, reader_mode='valid', mode='eval', cache_num=20)
+        valid_data_iter.set_batch_generator(valid_reader, place)
+        test_reader = reader.get_reader(batch_size, src_lang, tar_lang, vocab_prefix, test_data_prefix, reader_mode='test', mode='eval', cache_num=20)
+        test_data_iter.set_batch_generator(test_reader, place)
+
+
         print("finished load data")
-        train_data, valid_data, test_data, _ = raw_data
+        #train_data, valid_data, test_data, _ = raw_data
 
         def prepare_input(batch, epoch_id=0):
             src_ids, src_mask, tar_ids, tar_mask = batch
@@ -122,19 +137,19 @@ def main():
             return inputs, np.sum(tar_mask)
 
         # get train epoch size
-        def eval(data, epoch_id=0):
+        def eval(eval_data_iter, epoch_id=0):
             model.eval()
-            eval_data_iter = reader.get_data_iter(data, batch_size, mode='eval')
+            #eval_data_iter = reader.get_data_iter(data, batch_size, mode='eval')
             total_loss = 0.0
             word_count = 0.0
             for batch_id, batch in enumerate(eval_data_iter):
-                input_data_feed, word_num = prepare_input(
-                    batch, epoch_id)
+                input_data_feed1, input_data_feed2, input_data_feed3, input_data_feed4, input_data_feed5,  word_num = batch
+                input_data_feed = [input_data_feed1, input_data_feed2, input_data_feed3, input_data_feed4, input_data_feed5]
                 loss = model(input_data_feed)
 
                 total_loss += loss * batch_size
                 word_count += word_num
-            ppl = np.exp(total_loss.numpy() / word_count)
+            ppl = np.exp(total_loss.numpy() / word_count.numpy())
             model.train()
             return ppl
 
@@ -144,19 +159,15 @@ def main():
         for epoch_id in range(max_epoch):
             model.train()
             start_time = time.time()
-            if args.enable_ce:
-                train_data_iter = reader.get_data_iter(
-                    train_data, batch_size, enable_ce=True)
-            else:
-                train_data_iter = reader.get_data_iter(train_data, batch_size)
 
             total_loss = 0
             word_count = 0.0
             batch_times = []
             for batch_id, batch in enumerate(train_data_iter):
                 batch_start_time = time.time()
-                input_data_feed, word_num = prepare_input(
-                    batch, epoch_id=epoch_id)
+                input_data_feed1, input_data_feed2, input_data_feed3, input_data_feed4, input_data_feed5, word_num = batch
+                input_data_feed = [input_data_feed1, input_data_feed2, input_data_feed3, input_data_feed4, input_data_feed5]
+
                 word_count += word_num
                 loss = model(input_data_feed)
                 # print(loss.numpy()[0])
@@ -171,8 +182,8 @@ def main():
                 if batch_id > 0 and batch_id % 100 == 0:
                     print("-- Epoch:[%d]; Batch:[%d]; Time: %.5f s; ppl: %.5f" %
                         (epoch_id, batch_id, batch_time,
-                        np.exp(total_loss.numpy() / word_count)))
-                    ce_ppl.append(np.exp(total_loss.numpy() / word_count))
+                        np.exp(total_loss.numpy() / word_count.numpy() )))
+                    ce_ppl.append(np.exp(total_loss.numpy() / word_count.numpy() ))
                     total_loss = 0.0
                     word_count = 0.0
 
@@ -189,9 +200,9 @@ def main():
             print("begin to save", dir_name)
             paddle.fluid.save_dygraph(model.state_dict(), dir_name)
             print("save finished")
-            dev_ppl = eval(valid_data)
+            dev_ppl = eval(valid_data_iter)
             print("dev ppl", dev_ppl)
-            test_ppl = eval(test_data)
+            test_ppl = eval(test_data_iter)
             print("test ppl", test_ppl)
 
         if args.enable_ce:
